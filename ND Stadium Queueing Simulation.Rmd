@@ -1,0 +1,262 @@
+---
+title: "Notre Dame Stadium Queueing Simulation"
+output: html_document
+date: "2024-04-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load necessary libraries:
+```{r}
+library(simmer)
+library(tidyverse)
+```
+
+Set up Model Parameters:
+```{r}
+set.seed(6953)
+
+r <- 100           # number of simulation replications
+n <- 16000            # average number of fans arriving to gate
+
+service_time <- c(6,10,13,17,20,24)
+service_prob <- c(0.4, 0.1, 0.32, 0.08, 0.08, 0.02)
+time_btn_arrivals <- c(2.25, 0.2903, 0.1978, 0.15, 0.6, 18)
+time_btn_arrivals_prob <- c(0.05, 0.19375, 0.28438, 0.375, 0.09375, 0.003125)
+```
+
+
+Instantiate a trajectory for the customer
+```{r}
+#using trajectory() to instantiate
+fan <- trajectory("Fan's path")%>%
+  seize("entry")%>%
+  timeout(function(){
+    sample(service_time,size = 1,
+           replace = T, prob = service_prob) #size = 1 customer
+  })%>%
+  release("entry")
+```
+
+```{r}
+# Instantiate an empty object 
+results <- c()
+
+for(j in 1:r){
+  stadium <- simmer("stadium") %>%
+    add_resource(name = "entry", capacity = 22)%>% #22 metal detectors/scanners
+    add_generator("Fan", 
+                  fan,
+                  function(){
+                    c(0,
+                      sample(time_btn_arrivals,
+                             n-1, replace = T,
+                             prob = time_btn_arrivals_prob),
+                      -1)
+                  }) 
+  
+  output <- stadium %>%
+    run(until = 16200)%>%  #4.5 hours in seconds
+    get_mon_arrivals 
+  
+  output <- stadium %>%
+    run(until = 16200)%>%  
+    get_mon_arrivals() %>%
+    transform(wait_time = end_time - start_time -  activity_time) %>%
+    transform(start_service = start_time + wait_time) %>%
+    transform(server_use = aggregate(server ~ resource,
+                                     get_mon_resources(stadium),
+                                     mean))
+  
+  queue_length <- rep(NA, nrow(output))
+  
+  
+  queue_length[1] <- 0
+  for(i in 2: nrow(output)){
+    queue_length[i] <- sum(output$start_time[i]< output$start_service[1:i])
+  }
+  
+  temp <- cbind(output,queue_length = queue_length, rep = j)
+  results <- rbind(results, temp)
+  
+}
+```
+
+
+```{r}
+dim(results)
+```
+
+
+```{r}
+sum_results <- results %>%
+  as.data.frame()%>%
+  group_by(rep)%>%
+  summarize(mean_wait_time = mean(wait_time),
+            mean_queue_length = mean(queue_length),
+            mean_server_use = mean(server_use.server))
+
+sum_results
+
+summary(sum_results) #summary stats
+```
+
+
+### Solution 1
+#### Increase the number of servers to 25
+Increasing the number of servers 
+```{r}
+# Instantiate an empty object 
+results1 <- c()
+
+for(j in 1:r){
+  stadium <- simmer("stadium") %>%
+    add_resource(name = "entry", capacity = 25)%>% #22 metal detectors/scanners
+    add_generator("Fan", 
+                  fan,
+                  function(){
+                    c(0,
+                      sample(time_btn_arrivals,
+                             n-1, replace = T,
+                             prob = time_btn_arrivals_prob),
+                      -1)
+                  }) 
+  
+  output <- stadium %>%
+    run(until = 16200)%>%  #4.5 hours in seconds
+    get_mon_arrivals 
+  
+  output <- stadium %>%
+    run(until = 16200)%>%  
+    get_mon_arrivals() %>%
+    transform(wait_time = end_time - start_time -  activity_time) %>%
+    transform(start_service = start_time + wait_time) %>%
+    transform(server_use = aggregate(server ~ resource,
+                                     get_mon_resources(stadium),
+                                     mean))
+  
+  queue_length <- rep(NA, nrow(output))
+  
+  
+  queue_length[1] <- 0
+  for(i in 2: nrow(output)){
+    queue_length[i] <- sum(output$start_time[i]< output$start_service[1:i])
+  }
+  
+  temp <- cbind(output,queue_length = queue_length, rep = j)
+  results1 <- rbind(results, temp)
+  
+}
+```
+
+
+```{r}
+dim(results1)
+```
+
+
+```{r}
+sum_results1 <- results %>%
+  as.data.frame()%>%
+  group_by(rep)%>%
+  summarize(mean_wait_time = mean(wait_time),
+            mean_queue_length = mean(queue_length),
+            mean_server_use = mean(server_use.server))
+
+sum_results1
+
+summary(sum_results1) #summary stats
+```
+
+
+
+### Solution 2
+#### Reduce the processing time
+Aiming to decrease bag check time which will decrease some values
+in the service_time variable. 
+
+
+Set up Model Parameters:
+```{r}
+set.seed(6953)
+
+r <- 100           # number of simulation replications
+n <- 16000            # average number of fans arriving to gate
+
+#only changing the values that have bag check time
+#first four values do not include bag check time
+#last 2 values include bag check
+service_time <- c(6,10,13,14,17,21)
+service_prob <- c(0.4,0.22,0.2,0.03,0.13,0.02)
+time_btn_arrivals <- c(2.25, 0.2903, 0.1978, 0.15, 0.6, 18)
+time_btn_arrivals_prob <- c(0.05, 0.19375, 0.28438, 0.375, 0.09375, 0.003125)
+```
+
+
+```{r}
+# Instantiate an empty object 
+results2 <- c()
+
+for(j in 1:r){
+  stadium <- simmer("stadium") %>%
+    add_resource(name = "entry", capacity = 22)%>% #22 metal detectors/scanners
+    add_generator("Fan", 
+                  fan,
+                  function(){
+                    c(0,
+                      sample(time_btn_arrivals,
+                             n-1, replace = T,
+                             prob = time_btn_arrivals_prob),
+                      -1)
+                  }) 
+  
+  output <- stadium %>%
+    run(until = 16200)%>%  #4.5 hours in seconds
+    get_mon_arrivals 
+  
+  output <- stadium %>%
+    run(until = 16200)%>%  
+    get_mon_arrivals() %>%
+    transform(wait_time = end_time - start_time -  activity_time) %>%
+    transform(start_service = start_time + wait_time) %>%
+    transform(server_use = aggregate(server ~ resource,
+                                     get_mon_resources(stadium),
+                                     mean))
+  
+  queue_length <- rep(NA, nrow(output))
+  
+  
+  queue_length[1] <- 0
+  for(i in 2: nrow(output)){
+    queue_length[i] <- sum(output$start_time[i]< output$start_service[1:i])
+  }
+  
+  temp <- cbind(output,queue_length = queue_length, rep = j)
+  results2 <- rbind(results, temp)
+  
+}
+```
+
+
+```{r}
+dim(results2)
+```
+
+
+```{r}
+sum_results2 <- results2 %>%
+  as.data.frame()%>%
+  group_by(rep)%>%
+  summarize(mean_wait_time = mean(wait_time),
+            mean_queue_length = mean(queue_length),
+            mean_server_use = mean(server_use.server))
+
+sum_results2
+
+summary(sum_results2) #summary stats
+```
+
+
+
